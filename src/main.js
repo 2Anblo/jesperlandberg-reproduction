@@ -145,6 +145,12 @@ function setPanel(from, to, t) {
   panelEl.style.borderRadius = `${r / sx}px / ${r / sy}px`
 }
 
+// Screen rect of a strip card laid flat on the z=0 plane (1 unit == 1px).
+function flatRect(i) {
+  const c = stage.cards[i]
+  return { x: c.x + stage.vw / 2 - c.w / 2, y: stage.vh / 2 - c.h / 2, width: c.w, height: c.h }
+}
+
 function fallbackRect(to) {
   return { x: to.x + to.width * 0.3, y: to.y + to.height * 0.3, width: to.width * 0.4, height: to.height * 0.4 }
 }
@@ -188,19 +194,30 @@ async function openProject(p) {
   syncStage()
 
   if (fly) {
-    // the GL card is the panel until it lands: flatten + fly, then cut straight
-    // to the white panel on the same frame — no hold, no cross-fade
-    panelEl.style.opacity = 0
+    // 1. the GL card flattens where it is
     cover.style.transition = 'none'
     cover.style.opacity = 0
-    stage.flight = { i: idx, p: 0, to: stage.planeRect(to) }
-    await tween(1100, ease.inOutCubic, (t) => (stage.flight.p = t))
-    panelEl.style.opacity = 1
+    panelEl.style.opacity = 0
+    const flat = flatRect(idx)
+    stage.flight = { i: idx, p: 0, to: stage.planeRect(flat) }
+    await tween(450, ease.outCubic, (t) => (stage.flight.p = t))
+    // 2. the moment it is flat: cut to a white panel of the same rect...
     stage.hiddenCard = idx
     stage.cards[idx].alpha = 0
     stage.flight = null
-    projectEl.classList.add('is-content')
+    setPanel(flat, to, 0)
+    panelEl.style.opacity = 1
     requestAnimationFrame(() => (cover.style.transition = ''))
+    // 3. ...which snaps open to full size while the content comes up
+    let shown = false
+    await tween(650, ease.outExpo, (t) => {
+      setPanel(flat, to, t)
+      if (!shown && t > 0.7) {
+        shown = true
+        projectEl.classList.add('is-content')
+      }
+    })
+    projectEl.classList.add('is-content')
     $('.project-close').focus({ preventScroll: true })
     return
   } else {
@@ -230,13 +247,20 @@ async function closeProject() {
   await wait(fly ? 220 : 300)
 
   if (fly) {
-    // swap the DOM panel back for the GL card and fly it home onto the strip
-    stage.flight = { i: idx, p: 1, to: stage.planeRect(to) }
+    // white panel shrinks back to the card's flat rect, cuts to the GL card,
+    // which then bends back onto the strip
+    const flat = flatRect(idx)
+    const base = { x: to.x, y: to.y, width: to.width, height: to.height }
+    await tween(550, ease.inOutCubic, (t) => setPanel(flat, base, 1 - t))
+    stage.flight = { i: idx, p: 1, to: stage.planeRect(flat) }
     stage.hiddenCard = -1
     stage.cards[idx].alpha = 1
+    // draw the GL card now, before the panel goes, so no frame shows neither
+    stage.update()
     projectEl.classList.remove('is-open')
+    panelEl.style.transform = 'none'
     syncStage()
-    await tween(1000, ease.inOutCubic, (t) => (stage.flight.p = 1 - t))
+    await tween(500, ease.inOutCubic, (t) => (stage.flight.p = 1 - t))
     stage.flight = null
     return
   }
