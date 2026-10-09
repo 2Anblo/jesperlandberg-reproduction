@@ -186,14 +186,15 @@ export const floorFragment = /* glsl */ `
   }
 `
 
-// Profile view: a swirling, mirror-squeezed rim over the rendered strip.
+// Profile view: the strip wrapped round a swirling rim.
 // Inside uHorizon the screen is black — what passes behind the disc is
-// swallowed. The rim [uHorizon, uHorizon + uBand] reflects a much wider
-// annulus of the surrounding space, folded and squeezed into it: its inner
-// edge looks out to radius uHorizon + uReach, its outer edge exactly at
-// itself, so cards entering it become thin streaks and the rim joins the
-// untouched picture with a crisp edge. Everything near the disc is also
-// wound one way round it by uSwirl, fading over uFall.
+// swallowed. The rim [uHorizon, uHorizon + uBand] is filled with the strip
+// itself: arc length from where the strip enters (left/right) maps to
+// distance along the strip towards the centre, and the rim's width maps to
+// the card height. So the cards passing the ring are bent round its
+// circumference as thin streaks, with no empty space, and flow round it as
+// the strip scrolls. Everything near the disc is also wound one way round
+// it by uSwirl, fading over uFall.
 export const lensVertex = /* glsl */ `
   varying vec2 vUv;
   void main() {
@@ -208,20 +209,27 @@ export const lensFragment = /* glsl */ `
   uniform vec2 uCenter;   // css px, y up
   uniform float uHorizon; // black disc radius, px
   uniform float uBand;    // rim width, px
-  uniform float uReach;   // how far out the rim's inner edge looks, px
+  uniform float uStripH;  // card height on screen, px
   uniform float uSwirl;   // twist at the disc edge, radians (sign = direction)
   uniform float uFall;    // fade length of the twist, px
   uniform float uDisp;    // chromatic spread, fraction
 
   varying vec2 vUv;
 
+  const float HALF_PI = 1.5707963;
+
   vec2 bend(vec2 p, float r, float k) {
     float outer = uHorizon + uBand;
-    float t = clamp((r - uHorizon) / max(uBand, 1.0), 0.0, 1.0);
-    // folded squeeze inside the rim; identity outside it
-    float b = r < outer ? mix(uHorizon + uReach * k, outer, pow(t, 0.8)) : r;
     float a = atan(p.y, p.x) + uSwirl * k * exp(-max(r - uHorizon, 0.0) / max(uFall, 1.0));
-    return (uCenter + vec2(cos(a), sin(a)) * b) / uRes;
+    if (r >= outer) return (uCenter + vec2(cos(a), sin(a)) * r) / uRes;
+
+    // inside the rim: wrap the strip round the circumference
+    float t = clamp((r - uHorizon) / max(uBand, 1.0), 0.0, 1.0);
+    float side = cos(a) >= 0.0 ? 1.0 : -1.0;               // entered from right / left
+    float phi = side > 0.0 ? a : (a > 0.0 ? 3.14159265 - a : -3.14159265 - a);
+    float d = min(abs(phi) / HALF_PI, 1.0) * outer;        // quarter turn = entry → centre
+    vec2 src = uCenter + vec2(side * (outer - d), (t - 0.5) * uStripH * 0.95 * k);
+    return src / uRes;
   }
 
   void main() {
