@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Portfolio</title>
+    <meta name="description" content="Design engineer portfolio — WebGL project carousel." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="gl" id="gl"></div>
+
+    <div class="loader" id="loader" aria-hidden="true"><i></i><i></i><i></i></div>
+
+    <header class="ui ui-top">
+      <a href="/" class="ui-link" data-link data-site-name></a>
+      <button class="ui-link" id="profileBtn" type="button">Profile</button>
+    </header>
+
+    <footer class="ui ui-bottom">
+      <nav class="ui-views">
+        <a href="/" class="ui-link" data-link data-view="featured">Featured</a>
+        <span class="ui-sep">/</span>
+        <a href="/full" class="ui-link" data-link data-view="full">Full</a>
+      </nav>
+      <a href="/newsletter" class="ui-link" data-link>Newsletter</a>
+    </footer>
+
+    <section class="full" id="full" aria-label="All projects"><p class="full-list"></p></section>
+    <div class="full-preview" id="preview" aria-hidden="true"><img alt="" /></div>
+
+    <section class="profile" id="profile" aria-label="Profile">
+      <div class="profile-inner">
+        <p class="profile-bio"></p>
+        <p class="profile-stats"></p>
+        <p class="profile-links"></p>
+      </div>
+    </section>
+
+    <section class="project" id="project" role="dialog" aria-modal="true" aria-labelledby="projectTitle">
+      <div class="project-panel">
+        <img class="project-cover" alt="" />
+        <button class="project-close" type="button" aria-label="Close">
+          <svg viewBox="0 0 12 12" width="10" height="10"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.6" /></svg>
+        </button>
+        <div class="project-scroll">
+          <aside class="project-info">
+            <h2 id="projectTitle"></h2>
+            <p class="project-desc"></p>
+            <div class="project-meta"></div>
+          </aside>
+          <div class="project-media"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="newsletter" id="newsletter" role="dialog" aria-modal="true" aria-label="Newsletter">
+      <form class="newsletter-form">
+        <h2>Newsletter</h2>
+        <p>Occasional notes on new work, experiments and things worth seeing. No spam.</p>
+        <div class="newsletter-row">
+          <input type="email" required placeholder="you@example.com" aria-label="Email address" />
+          <button type="submit">Subscribe</button>
+        </div>
+        <p class="newsletter-done">Thanks — this is a demo, nothing was sent.</p>
+      </form>
+    </section>
+
+    <div class="sr-only" id="sr"></div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
