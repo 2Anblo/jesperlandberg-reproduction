@@ -1,6 +1,12 @@
 import * as THREE from 'three'
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
-import { cardVertex, cardFragment, floorVertex, floorFragment } from './shaders.js'
+import {
+  cardVertex,
+  cardFragment,
+  floorVertex,
+  floorFragment,
+  lensVertex,
+  lensFragment,
+} from './shaders.js'
 import { clamp, damp, ease, lerp } from '../utils.js'
 
 const GAP = 12
@@ -14,8 +20,6 @@ export class Stage {
     container.appendChild(this.renderer.domElement)
 
     this.scene = new THREE.Scene()
-    // the profile ring gets its own pass so the strip can never cut through it
-    this.ringScene = new THREE.Scene()
     this.camera = new THREE.PerspectiveCamera(40, 1, 1, 30000)
 
     this.cards = []
@@ -39,6 +43,7 @@ export class Stage {
     this._tmp = new THREE.Vector3()
 
     this.createFloor()
+    this.createLens()
     this.bindEvents()
     this.resize()
   }
@@ -113,7 +118,6 @@ export class Stage {
       }
     })
     this.layout()
-    this.createRing(canvases)
   }
 
   createFloor() {
@@ -138,45 +142,32 @@ export class Stage {
     this.scene.add(this.floor)
   }
 
-  // A polished, iridescent ring that reflects the project artwork.
-  createRing(canvases) {
-    const pmrem = new THREE.PMREMGenerator(this.renderer)
-    const env = new RoomEnvironment()
-    // hang the card artwork around the env scene so it shows up in reflections
-    canvases.forEach((cv, i) => {
-      const a = (i / canvases.length) * Math.PI * 2
-      const m = new THREE.Mesh(
-        new THREE.PlaneGeometry(4, 4 / (cv.width / cv.height)),
-        new THREE.MeshBasicMaterial({ map: this.textures[i], side: THREE.DoubleSide })
-      )
-      m.position.set(Math.sin(a) * 6, (i % 2) * 2 - 1, Math.cos(a) * 6)
-      m.lookAt(0, 0, 0)
-      env.add(m)
-    })
-    const envMap = pmrem.fromScene(env, 0.02).texture
-    pmrem.dispose()
-
-    this.ringGroup = new THREE.Group()
-    this.ringMesh = new THREE.Mesh(
-      new THREE.TorusGeometry(1, 0.11, 64, 220),
-      new THREE.MeshPhysicalMaterial({
-        color: 0xffffff,
-        metalness: 1,
-        roughness: 0.04,
-        iridescence: 0.7,
-        iridescenceIOR: 1.8,
-        envMap,
-        envMapIntensity: 0.75,
+  // Profile view: the strip is rendered off-screen, then warped through a
+  // gravitational lens (see lensFragment) so it wraps around a black disc.
+  createLens() {
+    this.rt = new THREE.WebGLRenderTarget(1, 1, { samples: 4 })
+    this.lensUniforms = {
+      tScene: { value: this.rt.texture },
+      uRes: { value: new THREE.Vector2(1, 1) },
+      uCenter: { value: new THREE.Vector2() },
+      uHorizon: { value: 0 },
+      uBand: { value: 0 },
+      uDisp: { value: 0.06 },
+    }
+    this.lensScene = new THREE.Scene()
+    this.lensCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
+    const quad = new THREE.Mesh(
+      new THREE.PlaneGeometry(2, 2),
+      new THREE.ShaderMaterial({
+        uniforms: this.lensUniforms,
+        vertexShader: lensVertex,
+        fragmentShader: lensFragment,
+        depthTest: false,
+        depthWrite: false,
       })
     )
-    this.ringDisk = new THREE.Mesh(
-      new THREE.CircleGeometry(1, 128),
-      new THREE.MeshBasicMaterial({ color: 0x000000 })
-    )
-    this.ringGroup.add(this.ringDisk, this.ringMesh)
-    this.ringGroup.visible = false
-    this.ringScene.add(this.ringGroup)
-    this.layoutRing()
+    quad.frustumCulled = false
+    this.lensScene.add(quad)
   }
 
   /* -------------------------------------------------------------- layout */
@@ -196,7 +187,7 @@ export class Stage {
     this.camera.updateProjectionMatrix()
     this.radius = Math.max(w * 1.05, 900)
     this.layout()
-    this.layoutRing()
+    this.layoutLens()
   }
 
   layout() {
@@ -239,11 +230,13 @@ export class Stage {
     })
   }
 
-  layoutRing() {
-    if (!this.ringGroup) return
-    const r = Math.min(this.vh * 0.41, this.vw * 0.44)
-    this.ringBase = r
-    this.ringGroup.position.set(0, 0, 160)
+  layoutLens() {
+    const dpr = this.renderer.getPixelRatio()
+    this.rt.setSize(Math.round(this.vw * dpr), Math.round(this.vh * dpr))
+    this.lensUniforms.uRes.value.set(this.vw, this.vh)
+    const m = Math.min(this.vh, this.vw)
+    this.lensH = m * 0.37 // black disc the profile text sits in
+    this.lensB = m * 0.08 // ring the strip wraps around
   }
 
   /* -------------------------------------------------------------- events */
@@ -481,33 +474,23 @@ export class Stage {
       c.mesh.material.depthTest = !fl
     })
 
-    this.updateRing(dt, t)
-    this.renderer.render(this.scene, this.camera)
-    if (this.ringGroup && this.ringGroup.visible) {
-      // draw the ring over the strip: keep the colour, drop the strip's depth
-      this.renderer.autoClear = false
-      this.renderer.clearDepth()
-      this.renderer.render(this.ringScene, this.camera)
-      this.renderer.autoClear = true
-    }
-  }
-
-  updateRing(dt, t) {
-    if (!this.ringGroup) return
+    // profile lens: grows in/out on a damped clock
     this.ring.v = damp(this.ring.v, this.ring.target, this.ring.target ? 3.2 : 6, dt)
     const p = this.ring.v
-    this.ringGroup.visible = p > 0.002
-    if (!this.ringGroup.visible) return
+    if (p < 0.002) {
+      this.renderer.render(this.scene, this.camera)
+      return
+    }
     this.mouse.sx = damp(this.mouse.sx, this.mouse.x, 3, dt)
     this.mouse.sy = damp(this.mouse.sy, this.mouse.y, 3, dt)
-    const sc = this.ringBase * p
-    this.ringGroup.scale.setScalar(sc)
-    this.ringGroup.rotation.set(
-      (1 - p) * 1.4 + this.mouse.sy * 0.18,
-      Math.sin(t * 0.5) * 0.08 + this.mouse.sx * 0.25,
-      (1 - p) * -0.8
-    )
-    this.ringMesh.rotation.z = t * 0.15
+    const u = this.lensUniforms
+    u.uCenter.value.set(this.vw / 2 + this.mouse.sx * 14, this.vh / 2 - this.mouse.sy * 14)
+    u.uHorizon.value = this.lensH * p
+    u.uBand.value = this.lensB * p
+    this.renderer.setRenderTarget(this.rt)
+    this.renderer.render(this.scene, this.camera)
+    this.renderer.setRenderTarget(null)
+    this.renderer.render(this.lensScene, this.lensCamera)
   }
 }
 

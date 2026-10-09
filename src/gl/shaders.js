@@ -185,3 +185,57 @@ export const floorFragment = /* glsl */ `
     gl_FragColor = vec4(vec3(1.0), line * fade * 0.32 * uAlpha);
   }
 `
+
+// Profile view: a lens warp of the rendered strip, confined to a ring.
+// Inside uHorizon the screen is black. In the band [uHorizon, uHorizon+uBand]
+// each pixel looks back towards the centre: everything hidden behind the disc
+// is squeezed into the band and wrapped around the circumference, so cards
+// passing behind it travel round the rim. Outside the band nothing moves.
+export const lensVertex = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = vec4(position.xy, 0.0, 1.0);
+  }
+`
+
+export const lensFragment = /* glsl */ `
+  uniform sampler2D tScene;
+  uniform vec2 uRes;      // css px
+  uniform vec2 uCenter;   // css px, y up
+  uniform float uHorizon; // black disc radius, px
+  uniform float uBand;    // width of the warped ring, px
+  uniform float uDisp;    // chromatic spread, fraction
+
+  varying vec2 vUv;
+
+  // band position t (0 at the disc, 1 at the outer edge) → source radius.
+  // Starts just past the centre on the far side, ends exactly at r, so the
+  // ring joins the untouched picture outside it.
+  vec2 bend(vec2 p, float r, float k) {
+    float t = clamp((r - uHorizon) / max(uBand, 1.0), 0.0, 1.0);
+    float outer = uHorizon + uBand;
+    float b = r >= outer ? r : outer * (pow(t, 1.8 * k) * 1.1 - 0.1);
+    return (uCenter + p / max(r, 1e-3) * b) / uRes;
+  }
+
+  void main() {
+    vec2 p = vUv * uRes - uCenter;
+    float r = length(p);
+    vec3 col;
+    if (uBand < 0.5 || r > uHorizon + uBand + 2.0) {
+      col = texture2D(tScene, vUv).rgb;
+    } else {
+      // each channel bends a touch differently: an iridescent fringe on the ring
+      col.r = texture2D(tScene, bend(p, r, 1.0 + uDisp)).r;
+      col.g = texture2D(tScene, bend(p, r, 1.0)).g;
+      col.b = texture2D(tScene, bend(p, r, 1.0 - uDisp)).b;
+      float t = clamp((r - uHorizon) / max(uBand, 1.0), 0.0, 1.0);
+      // read as a rounded tube: soft shade at both edges, a glint near the disc
+      col *= 0.55 + 0.45 * sin(t * 3.14159265);
+      col += vec3(0.18) * exp(-max(r - uHorizon, 0.0) / 3.0);
+      col *= smoothstep(uHorizon, uHorizon + 1.5, r);
+    }
+    gl_FragColor = vec4(col, 1.0);
+  }
+`
