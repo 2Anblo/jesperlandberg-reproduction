@@ -221,6 +221,18 @@ export const lensFragment = /* glsl */ `
 
   const float HALF_PI = 1.5707963;
 
+  // Where the strip meets the rim (left/right), the tube's outer half instead
+  // squeezes the space under it: at the outer edge it matches the pulled
+  // picture just outside, then compresses inwards, so the card flows into the
+  // tube with no seam.
+  vec2 fold(vec2 p, float r, float k) {
+    float outer = uHorizon + uBand;
+    float a = atan(p.y, p.x) + uSwirl * k * exp(-max(r - uHorizon, 0.0) / max(uFall, 1.0));
+    float t = clamp((r - uHorizon) / max(uBand, 1.0), 0.0, 1.0);
+    float b = mix(uHorizon * 0.55 * k, outer - uPull, pow(t, 0.7));
+    return (uCenter + vec2(cos(a), sin(a)) * b) / uRes;
+  }
+
   vec2 bend(vec2 p, float r, float k) {
     float outer = uHorizon + uBand;
     float a = atan(p.y, p.x) + uSwirl * k * exp(-max(r - uHorizon, 0.0) / max(uFall, 1.0));
@@ -256,6 +268,15 @@ export const lensFragment = /* glsl */ `
       col.r = texture2D(tScene, bend(p, r, 1.0 + uDisp)).r;
       col.g = texture2D(tScene, bend(p, r, 1.0)).g;
       col.b = texture2D(tScene, bend(p, r, 1.0 - uDisp)).b;
+      vec3 flow;
+      flow.r = texture2D(tScene, fold(p, r, 1.0 + uDisp)).r;
+      flow.g = texture2D(tScene, fold(p, r, 1.0)).g;
+      flow.b = texture2D(tScene, fold(p, r, 1.0 - uDisp)).b;
+      // blend to the seamless squeeze where the strip touches the rim
+      float tr = (r - uHorizon) / max(uBand, 1.0);
+      float side = abs(p.x) / max(r, 1.0);
+      float w = smoothstep(0.55, 0.95, side) * smoothstep(0.15, 0.75, tr);
+      col = mix(col, flow, w);
       // dark polished metal: shadowed inner edge, two crisp highlights
       float t = (r - uHorizon) / max(uBand, 1.0);
       float tube = sin(t * 3.14159265);
