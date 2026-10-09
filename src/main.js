@@ -162,12 +162,15 @@ async function openProject(p) {
   cover.src = imageURL(p, {}, 'card')
   cover.style.opacity = 1
 
+  // the card's own artwork leads the column, so the flown card "reappears" there
   const media = $('.project-media')
   media.innerHTML = ''
-  ;[1, 2, 3].forEach((v) => {
+  ;[0, 1, 2, 3].forEach((v) => {
     const img = new Image()
-    img.alt = `${p.title} — screen ${v}`
-    img.src = imageURL(p, { variant: v, withCaption: false, aspect: v === 2 ? 1.5 : p.aspect }, `g${v}`)
+    img.alt = `${p.title} — screen ${v + 1}`
+    img.src = v
+      ? imageURL(p, { variant: v, withCaption: false, aspect: v === 2 ? 1.5 : p.aspect }, `g${v}`)
+      : imageURL(p, { withCaption: false }, 'clean')
     media.appendChild(img)
   })
   $('.project-scroll').scrollTop = 0
@@ -185,14 +188,21 @@ async function openProject(p) {
   syncStage()
 
   if (fly) {
-    // the GL card is the panel until it lands: flatten + fly, then hand over
+    // the GL card is the panel until it lands: flatten + fly, then cut straight
+    // to the white panel on the same frame — no hold, no cross-fade
     panelEl.style.opacity = 0
+    cover.style.transition = 'none'
+    cover.style.opacity = 0
     stage.flight = { i: idx, p: 0, to: stage.planeRect(to) }
     await tween(1100, ease.inOutCubic, (t) => (stage.flight.p = t))
     panelEl.style.opacity = 1
     stage.hiddenCard = idx
     stage.cards[idx].alpha = 0
     stage.flight = null
+    projectEl.classList.add('is-content')
+    requestAnimationFrame(() => (cover.style.transition = ''))
+    $('.project-close').focus({ preventScroll: true })
+    return
   } else {
     const start = from || fallbackRect(to)
     setPanel(start, to, 0)
@@ -210,13 +220,15 @@ async function openProject(p) {
 async function closeProject() {
   const p = state.project
   const idx = featuredIndex(p)
+  const cover = $('.project-cover')
+  const fly = idx >= 0 && state.view === 'featured' && stage.cardRect(idx)
   projectEl.classList.remove('is-content')
-  $('.project-cover').style.opacity = 1
   state.project = null
   const to = panelEl.getBoundingClientRect()
-  await wait(300)
+  if (!fly) cover.style.opacity = 1
+  // let the content drop away, then cut from the white panel to the card
+  await wait(fly ? 220 : 300)
 
-  const fly = idx >= 0 && state.view === 'featured' && stage.cardRect(idx)
   if (fly) {
     // swap the DOM panel back for the GL card and fly it home onto the strip
     stage.flight = { i: idx, p: 1, to: stage.planeRect(to) }

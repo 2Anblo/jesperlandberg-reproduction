@@ -542,3 +542,10 @@ body.is-profile .profile-inner {
 .newsletter :focus-visible {
   outline-color: #111;
 }
+
+/* content leaves fast so the cut back to the card is not held up */
+.project:not(.is-content) .project-media img,
+.project:not(.is-content) .project-scroll {
+  transition-duration: 0.2s;
+  transition-delay: 0s;
+}
