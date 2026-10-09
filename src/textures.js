@@ -343,23 +343,7 @@ function caption(c, w, h, title, dark) {
   c.font = `500 ${s}px ${SANS}`
   c.textBaseline = 'alphabetic'
   c.fillText(title, w * 0.035, h - h * 0.05)
-
-  // little arrow button, bottom right
-  const r = h * 0.035
-  const cx = w - w * 0.035 - r, cy = h - h * 0.05 - r * 0.6
-  c.fillStyle = '#000'
-  c.beginPath()
-  c.arc(cx, cy, r, 0, Math.PI * 2)
-  c.fill()
-  c.strokeStyle = '#fff'
-  c.lineWidth = r * 0.14
-  c.beginPath()
-  c.moveTo(cx - r * 0.35, cy)
-  c.lineTo(cx + r * 0.35, cy)
-  c.moveTo(cx + r * 0.05, cy - r * 0.3)
-  c.lineTo(cx + r * 0.35, cy)
-  c.lineTo(cx + r * 0.05, cy + r * 0.3)
-  c.stroke()
+  // the round arrow button is drawn live in the card shader (see shaders.js)
 }
 
 /* --------------------------------------------------------------- public */

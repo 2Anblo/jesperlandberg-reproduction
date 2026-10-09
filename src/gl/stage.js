@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { cardVertex, cardFragment, floorVertex, floorFragment } from './shaders.js'
-import { clamp, damp } from '../utils.js'
+import { clamp, damp, ease } from '../utils.js'
 
 const GAP = 12
 
@@ -65,6 +65,11 @@ export class Stage {
         uPress: { value: 0 },
         uDentR: { value: 120 },
         uDentDepth: { value: 120 },
+        uPillC: { value: new THREE.Vector2() },
+        uPillR: { value: 12 },
+        uPillHover: { value: 0 },
+        uMarkOut: { value: 0 },
+        uMarkIn: { value: 0 },
         uCorner: { value: 18 },
         uAlpha: { value: 0 },
         uDim: { value: 0 },
@@ -97,6 +102,7 @@ export class Stage {
         my: 0,
         mvx: 0,
         mvy: 0,
+        pill: 0, // arrow swap timeline, 0..1
         delay: i * 0.06,
       }
     })
@@ -222,6 +228,10 @@ export class Stage {
       c.uniforms.uStripW.value = this.wave.w
       c.uniforms.uDentR.value = cardH * 0.3
       c.uniforms.uDentDepth.value = cardH * 1.1
+      const pr = Math.max(10, cardH * 0.04)
+      const pad = cardH * 0.045
+      c.uniforms.uPillR.value = pr
+      c.uniforms.uPillC.value.set(c.w / 2 - pad - pr, -c.h / 2 + pad + pr)
       c.uniforms.uCorner.value = mobile ? 12 : 18
     })
   }
@@ -431,7 +441,13 @@ export class Stage {
       c.my += c.mvy * dt
       c.pressV += (((i === hovered ? 1 : 0) - c.press) * 70 - c.pressV * 7) * dt
       c.press += c.pressV * dt
+      // arrow swap: the resting → leaves, then a ↗ draws itself in; reversed on leave
+      const dir = i === hovered ? 1 : -1
+      c.pill = clamp(c.pill + (dir * dt) / 0.75, 0, 1)
       const u = c.uniforms
+      u.uPillHover.value = ease.outCubic(clamp(c.pill / 0.5, 0, 1))
+      u.uMarkOut.value = ease.inOutCubic(clamp(c.pill / 0.4, 0, 1))
+      u.uMarkIn.value = ease.outCubic(clamp((c.pill - 0.3) / 0.7, 0, 1))
       u.uCenter.value.set(c.x, 0)
       u.uPress.value = c.press
       u.uMouse.value.set(c.mx, c.my)

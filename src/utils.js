@@ -8,6 +8,7 @@ export const ease = {
   inOutExpo: (t) =>
     t === 0 ? 0 : t === 1 ? 1 : t < 0.5 ? Math.pow(2, 20 * t - 10) / 2 : (2 - Math.pow(2, -20 * t + 10)) / 2,
   outCubic: (t) => 1 - Math.pow(1 - t, 3),
+  inOutCubic: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
 }
 
 // Minimal tween: tween(800, ease.outExpo, (t) => ...) → Promise
