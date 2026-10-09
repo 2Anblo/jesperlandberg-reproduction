@@ -1,0 +1,415 @@
+import * as THREE from 'three'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { cardVertex, cardFragment, floorVertex, floorFragment } from './shaders.js'
+import { clamp, damp } from '../utils.js'
+
+const GAP = 12
+
+export class Stage {
+  constructor(container) {
+    this.container = container
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    this.renderer.setClearColor(0x000000, 1)
+    container.appendChild(this.renderer.domElement)
+
+    this.scene = new THREE.Scene()
+    this.camera = new THREE.PerspectiveCamera(40, 1, 1, 30000)
+
+    this.cards = []
+    this.scroll = { target: 0, current: 0, prev: 0, vel: 0 }
+    this.pointer = { x: -1, y: -1, down: false, startX: 0, lastX: 0, moved: 0, inside: false }
+    this.hovered = -1
+    this.interactive = false
+    this.scrollable = false
+    this.cardsAlpha = { v: 0, target: 0 }
+    this.dim = { v: 0, target: 0 }
+    this.hiddenCard = -1
+    this.ring = { v: 0, target: 0 }
+    this.mouse = { x: 0, y: 0, sx: 0, sy: 0 }
+
+    this.onHover = () => {}
+    this.onClick = () => {}
+
+    this.clock = new THREE.Clock()
+    this._tmp = new THREE.Vector3()
+
+    this.createFloor()
+    this.bindEvents()
+    this.resize()
+  }
+
+  /* --------------------------------------------------------------- setup */
+
+  setCards(canvases) {
+    this.textures = canvases.map((cv) => {
+      const t = new THREE.CanvasTexture(cv)
+      t.anisotropy = this.renderer.capabilities.getMaxAnisotropy()
+      t.minFilter = THREE.LinearMipmapLinearFilter
+      return t
+    })
+    const geo = new THREE.PlaneGeometry(1, 1, 48, 12)
+    this.cards = canvases.map((cv, i) => {
+      const uniforms = {
+        uMap: { value: this.textures[i] },
+        uCenter: { value: new THREE.Vector2() },
+        uSize: { value: new THREE.Vector2() },
+        uScale: { value: 1 },
+        uRadius: { value: 1000 },
+        uVel: { value: 0 },
+        uWave: { value: 0 },
+        uCorner: { value: 18 },
+        uAlpha: { value: 0 },
+        uDim: { value: 0 },
+        uHover: { value: 0 },
+      }
+      const mesh = new THREE.Mesh(
+        geo,
+        new THREE.ShaderMaterial({
+          uniforms,
+          vertexShader: cardVertex,
+          fragmentShader: cardFragment,
+          transparent: true,
+          extensions: { derivatives: true },
+        })
+      )
+      mesh.frustumCulled = false
+      this.scene.add(mesh)
+      return {
+        mesh,
+        uniforms,
+        aspect: cv.width / cv.height,
+        base: 0,
+        w: 0,
+        h: 0,
+        x: 0,
+        hover: 0,
+        alpha: 0,
+        delay: i * 0.06,
+      }
+    })
+    this.layout()
+    this.createRing(canvases)
+  }
+
+  createFloor() {
+    this.floorUniforms = {
+      uCell: { value: 140 },
+      uOffset: { value: 0 },
+      uFar: { value: -9000 },
+      uAlpha: { value: 0 },
+    }
+    this.floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(60000, 30000),
+      new THREE.ShaderMaterial({
+        uniforms: this.floorUniforms,
+        vertexShader: floorVertex,
+        fragmentShader: floorFragment,
+        transparent: true,
+        depthWrite: false,
+      })
+    )
+    this.floor.rotation.x = -Math.PI / 2
+    this.floor.renderOrder = -1
+    this.scene.add(this.floor)
+  }
+
+  // A polished, iridescent ring that reflects the project artwork.
+  createRing(canvases) {
+    const pmrem = new THREE.PMREMGenerator(this.renderer)
+    const env = new RoomEnvironment()
+    // hang the card artwork around the env scene so it shows up in reflections
+    canvases.forEach((cv, i) => {
+      const a = (i / canvases.length) * Math.PI * 2
+      const m = new THREE.Mesh(
+        new THREE.PlaneGeometry(4, 4 / (cv.width / cv.height)),
+        new THREE.MeshBasicMaterial({ map: this.textures[i], side: THREE.DoubleSide })
+      )
+      m.position.set(Math.sin(a) * 6, (i % 2) * 2 - 1, Math.cos(a) * 6)
+      m.lookAt(0, 0, 0)
+      env.add(m)
+    })
+    const envMap = pmrem.fromScene(env, 0.02).texture
+    pmrem.dispose()
+
+    this.ringGroup = new THREE.Group()
+    this.ringMesh = new THREE.Mesh(
+      new THREE.TorusGeometry(1, 0.11, 64, 220),
+      new THREE.MeshPhysicalMaterial({
+        color: 0xffffff,
+        metalness: 1,
+        roughness: 0.04,
+        iridescence: 0.7,
+        iridescenceIOR: 1.8,
+        envMap,
+        envMapIntensity: 0.75,
+      })
+    )
+    this.ringDisk = new THREE.Mesh(
+      new THREE.CircleGeometry(1, 128),
+      new THREE.MeshBasicMaterial({ color: 0x000000 })
+    )
+    this.ringGroup.add(this.ringDisk, this.ringMesh)
+    this.ringGroup.visible = false
+    this.scene.add(this.ringGroup)
+    this.layoutRing()
+  }
+
+  /* -------------------------------------------------------------- layout */
+
+  resize() {
+    // hidden/minimised windows can report 0×0; fall back to the last good size
+    const w = window.innerWidth || this.vw || 1280
+    const h = window.innerHeight || this.vh || 720
+    this.vw = w
+    this.vh = h
+    this.renderer.setSize(w, h)
+    this.camera.aspect = w / h
+    // place the camera so that 1 world unit == 1 CSS pixel on the z=0 plane
+    this.dist = h / 2 / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2))
+    this.camera.position.set(0, 0, this.dist)
+    this.camera.lookAt(0, 0, 0)
+    this.camera.updateProjectionMatrix()
+    this.radius = Math.max(w * 1.05, 900)
+    this.layout()
+    this.layoutRing()
+  }
+
+  layout() {
+    if (!this.cards.length) return
+    const mobile = this.vw < 700
+    const cardH = mobile ? Math.min(this.vh * 0.32, this.vw * 0.5) : Math.min(this.vh * 0.435, 550)
+    let x = 0
+    this.cards.forEach((c) => {
+      c.h = cardH
+      c.w = cardH * c.aspect
+      c.base = x + c.w / 2
+      x += c.w + GAP
+    })
+    this.total = x
+    // centre the first card
+    const shift = this.cards[0].w / 2
+    this.cards.forEach((c) => (c.base -= shift))
+    this.cardH = cardH
+    this.floor.position.set(0, -cardH * 0.5 - this.vh * 0.1, -12000)
+    this.floorUniforms.uCell.value = Math.max(90, cardH * 0.28)
+    this.cards.forEach((c) => {
+      c.uniforms.uSize.value.set(c.w, c.h)
+      c.uniforms.uRadius.value = this.radius
+      c.uniforms.uWave.value = cardH * 0.35
+      c.uniforms.uCorner.value = mobile ? 12 : 18
+    })
+  }
+
+  layoutRing() {
+    if (!this.ringGroup) return
+    const r = Math.min(this.vh * 0.41, this.vw * 0.44)
+    this.ringBase = r
+    this.ringGroup.position.set(0, 0, 160)
+  }
+
+  /* -------------------------------------------------------------- events */
+
+  bindEvents() {
+    window.addEventListener('resize', () => this.resize())
+
+    window.addEventListener(
+      'wheel',
+      (e) => {
+        if (!this.scrollable) return
+        const unit = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? this.vh : 1
+        const d = (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * unit
+        this.scroll.target += clamp(d, -400, 400) * 1.2
+      },
+      { passive: true }
+    )
+
+    const el = this.renderer.domElement
+    el.addEventListener('pointerdown', (e) => {
+      this.pointer.down = true
+      this.pointer.startX = this.pointer.lastX = e.clientX
+      this.pointer.moved = 0
+    })
+    window.addEventListener('pointermove', (e) => {
+      this.pointer.x = e.clientX
+      this.pointer.y = e.clientY
+      this.pointer.inside = true
+      this.mouse.x = (e.clientX / this.vw) * 2 - 1
+      this.mouse.y = (e.clientY / this.vh) * 2 - 1
+      if (this.pointer.down && this.scrollable) {
+        const dx = e.clientX - this.pointer.lastX
+        this.pointer.lastX = e.clientX
+        this.pointer.moved += Math.abs(dx)
+        this.scroll.target -= dx * (e.pointerType === 'touch' ? 2.2 : 1.6)
+      }
+    })
+    window.addEventListener('pointerup', (e) => {
+      if (!this.pointer.down) return
+      this.pointer.down = false
+      if (this.pointer.moved < 6 && this.interactive) {
+        const i = this.hitTest(e.clientX, e.clientY)
+        if (i >= 0) this.onClick(i)
+      }
+    })
+    document.addEventListener('pointerleave', () => (this.pointer.inside = false))
+
+    window.addEventListener('keydown', (e) => {
+      if (!this.scrollable) return
+      if (e.key === 'ArrowRight') this.scroll.target += this.cardH * 1.7
+      if (e.key === 'ArrowLeft') this.scroll.target -= this.cardH * 1.7
+    })
+  }
+
+  /* --------------------------------------------------------- projection */
+
+  // CPU mirror of the vertex shader.
+  bend(x, y, u, vel) {
+    const R = this.radius
+    const a = x / R
+    const k = 1 + Math.min(Math.abs(vel), 1.5) * 0.5
+    return {
+      x: Math.sin(a) * R,
+      y,
+      z: (1 - Math.cos(a)) * R * k + Math.sin(u * Math.PI) * Math.abs(vel) * this.cardH * 0.35,
+    }
+  }
+
+  toScreen(p) {
+    const v = this._tmp.set(p.x, p.y, p.z).project(this.camera)
+    return { x: ((v.x + 1) / 2) * this.vw, y: ((1 - v.y) / 2) * this.vh, behind: v.z > 1 }
+  }
+
+  // Screen-space outline of a card (top edge left→right, bottom edge right→left).
+  outline(c, steps = 10) {
+    const s = c.uniforms.uScale.value
+    const hw = (c.w * s) / 2
+    const hh = (c.h * s) / 2
+    const vel = this.scroll.vel
+    const top = []
+    const bottom = []
+    for (let i = 0; i <= steps; i++) {
+      const u = i / steps
+      const x = c.x - hw + u * hw * 2
+      top.push(this.toScreen(this.bend(x, hh, u, vel)))
+      bottom.unshift(this.toScreen(this.bend(x, -hh, u, vel)))
+    }
+    return top.concat(bottom)
+  }
+
+  isVisible(c) {
+    return Math.abs(c.x) / this.radius < Math.PI * 0.42
+  }
+
+  hitTest(px, py) {
+    let found = -1
+    this.cards.forEach((c, i) => {
+      if (found >= 0 || !this.isVisible(c) || c.alpha < 0.5) return
+      if (pointInPolygon(px, py, this.outline(c))) found = i
+    })
+    return found
+  }
+
+  cardRect(i) {
+    const c = this.cards[i]
+    if (!c || !this.isVisible(c)) return null
+    const pts = this.outline(c, 6)
+    const xs = pts.map((p) => p.x)
+    const ys = pts.map((p) => p.y)
+    const r = {
+      left: Math.min(...xs),
+      top: Math.min(...ys),
+      right: Math.max(...xs),
+      bottom: Math.max(...ys),
+    }
+    if (r.right < 0 || r.left > this.vw) return null
+    return { x: r.left, y: r.top, width: r.right - r.left, height: r.bottom - r.top }
+  }
+
+  // Scroll so card `i` sits in the middle of the screen.
+  focus(i) {
+    const c = this.cards[i]
+    const offset = wrap(c.base - this.scroll.target, this.total)
+    this.scroll.target += offset
+  }
+
+  /* ----------------------------------------------------------------- loop */
+
+  update() {
+    const dt = Math.min(this.clock.getDelta(), 0.05)
+    const t = this.clock.elapsedTime
+    const s = this.scroll
+
+    if (!s.locked) s.current = damp(s.current, s.target, 5, dt)
+    const delta = s.current - s.prev
+    s.prev = s.current
+    const rawVel = clamp(delta / Math.max(this.vw * 0.02, 1), -1.5, 1.5)
+    s.vel = damp(s.vel, rawVel, 8, dt)
+
+    this.cardsAlpha.v = damp(this.cardsAlpha.v, this.cardsAlpha.target, 4, dt)
+    this.dim.v = damp(this.dim.v, this.dim.target, 6, dt)
+    this.floorUniforms.uAlpha.value = Math.min(1, this.cardsAlpha.v * 1.5 + 0.0001)
+    this.floorUniforms.uOffset.value = s.current % (this.floorUniforms.uCell.value * 1000)
+
+    // hover
+    let hovered = -1
+    if (this.interactive && this.pointer.inside && !this.pointer.down) {
+      hovered = this.hitTest(this.pointer.x, this.pointer.y)
+    }
+    if (hovered !== this.hovered) {
+      this.hovered = hovered
+      this.onHover(hovered)
+    }
+
+    this.cards.forEach((c, i) => {
+      c.x = wrap(c.base - s.current, this.total)
+      const reveal = clamp((this.cardsAlpha.v - c.delay * 0.5) / 0.6, 0, 1)
+      const targetA = i === this.hiddenCard ? 0 : reveal
+      c.alpha = damp(c.alpha, targetA, 12, dt)
+      c.hover = damp(c.hover, i === hovered ? 1 : 0, 7, dt)
+      const u = c.uniforms
+      u.uCenter.value.set(c.x, 0)
+      u.uScale.value = 1 + c.hover * 0.06
+      u.uHover.value = c.hover
+      u.uVel.value = s.vel
+      u.uAlpha.value = c.alpha
+      u.uDim.value = this.dim.v
+      c.mesh.visible = c.alpha > 0.001 && this.isVisible(c)
+      // draw nearer cards last so the overlapping hover state sorts correctly
+      c.mesh.renderOrder = Math.round(-Math.abs(c.x)) + (i === hovered ? 10000 : 0)
+    })
+
+    this.updateRing(dt, t)
+    this.renderer.render(this.scene, this.camera)
+  }
+
+  updateRing(dt, t) {
+    if (!this.ringGroup) return
+    this.ring.v = damp(this.ring.v, this.ring.target, this.ring.target ? 3.2 : 6, dt)
+    const p = this.ring.v
+    this.ringGroup.visible = p > 0.002
+    if (!this.ringGroup.visible) return
+    this.mouse.sx = damp(this.mouse.sx, this.mouse.x, 3, dt)
+    this.mouse.sy = damp(this.mouse.sy, this.mouse.y, 3, dt)
+    const sc = this.ringBase * p
+    this.ringGroup.scale.setScalar(sc)
+    this.ringGroup.rotation.set(
+      (1 - p) * 1.4 + this.mouse.sy * 0.18,
+      Math.sin(t * 0.5) * 0.08 + this.mouse.sx * 0.25,
+      (1 - p) * -0.8
+    )
+    this.ringMesh.rotation.z = t * 0.15
+  }
+}
+
+function wrap(v, total) {
+  return ((((v + total / 2) % total) + total) % total) - total / 2
+}
+
+function pointInPolygon(x, y, pts) {
+  let inside = false
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i], b = pts[j]
+    if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) inside = !inside
+  }
+  return inside
+}
