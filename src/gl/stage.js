@@ -48,20 +48,25 @@ export class Stage {
       t.minFilter = THREE.LinearMipmapLinearFilter
       return t
     })
-    const geo = new THREE.PlaneGeometry(1, 1, 48, 12)
+    const geo = new THREE.PlaneGeometry(1, 1, 120, 60)
     this.cards = canvases.map((cv, i) => {
       const uniforms = {
         uMap: { value: this.textures[i] },
         uCenter: { value: new THREE.Vector2() },
         uSize: { value: new THREE.Vector2() },
-        uScale: { value: 1 },
         uRadius: { value: 1000 },
         uVel: { value: 0 },
         uWave: { value: 0 },
+        uTime: { value: 0 },
+        uStripAmp: { value: 0 },
+        uStripFreq: { value: 0.003 },
+        uMouse: { value: new THREE.Vector2() },
+        uPress: { value: 0 },
+        uDentR: { value: 120 },
+        uDentDepth: { value: 120 },
         uCorner: { value: 18 },
         uAlpha: { value: 0 },
         uDim: { value: 0 },
-        uHover: { value: 0 },
       }
       const mesh = new THREE.Mesh(
         geo,
@@ -83,8 +88,14 @@ export class Stage {
         w: 0,
         h: 0,
         x: 0,
-        hover: 0,
         alpha: 0,
+        // liquid press springs
+        press: 0,
+        pressV: 0,
+        mx: 0,
+        my: 0,
+        mvx: 0,
+        mvy: 0,
         delay: i * 0.06,
       }
     })
@@ -197,6 +208,10 @@ export class Stage {
       c.uniforms.uSize.value.set(c.w, c.h)
       c.uniforms.uRadius.value = this.radius
       c.uniforms.uWave.value = cardH * 0.35
+      c.uniforms.uStripAmp.value = cardH * 0.45
+      c.uniforms.uStripFreq.value = (Math.PI * 2) / (this.vw * 1.15)
+      c.uniforms.uDentR.value = cardH * 0.3
+      c.uniforms.uDentDepth.value = cardH * 1.1
       c.uniforms.uCorner.value = mobile ? 12 : 18
     })
   }
@@ -270,8 +285,37 @@ export class Stage {
     return {
       x: Math.sin(a) * R,
       y,
-      z: (1 - Math.cos(a)) * R * k + Math.sin(u * Math.PI) * Math.abs(vel) * this.cardH * 0.35,
+      z: (1 - Math.cos(a)) * R * k + this.strip(x) + Math.sin(u * Math.PI) * Math.abs(vel) * this.cardH * 0.35,
     }
+  }
+
+  // film-strip ripple in depth (mirrors strip() in the vertex shader)
+  strip(x) {
+    const amp = this.cardH * 0.45
+    const k = (Math.PI * 2) / (this.vw * 1.15)
+    const t = this.time || 0
+    return amp * (Math.sin(x * k + t * 0.35) * 0.7 + Math.sin(x * k * 2.3 - t * 0.22 + 1.7) * 0.3)
+  }
+
+  // Inverse of bend() for one card: closest card-local point under the cursor.
+  localPoint(c, px, py) {
+    const nu = 32, nv = 16
+    let best = Infinity, bx = 0, by = 0
+    for (let i = 0; i <= nu; i++) {
+      const u = i / nu
+      const x = c.x - c.w / 2 + u * c.w
+      for (let j = 0; j <= nv; j++) {
+        const y = -c.h / 2 + (j / nv) * c.h
+        const p = this.toScreen(this.bend(x, y, u, this.scroll.vel))
+        const d = (p.x - px) ** 2 + (p.y - py) ** 2
+        if (d < best) {
+          best = d
+          bx = x - c.x
+          by = y
+        }
+      }
+    }
+    return { x: bx, y: by }
   }
 
   toScreen(p) {
@@ -281,9 +325,8 @@ export class Stage {
 
   // Screen-space outline of a card (top edge left→right, bottom edge right→left).
   outline(c, steps = 10) {
-    const s = c.uniforms.uScale.value
-    const hw = (c.w * s) / 2
-    const hh = (c.h * s) / 2
+    const hw = c.w / 2
+    const hh = c.h / 2
     const vel = this.scroll.vel
     const top = []
     const bottom = []
@@ -337,7 +380,10 @@ export class Stage {
   update() {
     const dt = Math.min(this.clock.getDelta(), 0.05)
     const t = this.clock.elapsedTime
+    this.time = t
     const s = this.scroll
+    // gentle idle drift so the strip never fully rests
+    if (this.scrollable && !this.pointer.down) s.target += dt * 14
 
     if (!s.locked) s.current = damp(s.current, s.target, 5, dt)
     const delta = s.current - s.prev
@@ -365,17 +411,31 @@ export class Stage {
       const reveal = clamp((this.cardsAlpha.v - c.delay * 0.5) / 0.6, 0, 1)
       const targetA = i === this.hiddenCard ? 0 : reveal
       c.alpha = damp(c.alpha, targetA, 12, dt)
-      c.hover = damp(c.hover, i === hovered ? 1 : 0, 7, dt)
+      // liquid press: under-damped springs for depth and cursor position
+      if (i === hovered) {
+        const m = this.localPoint(c, this.pointer.x, this.pointer.y)
+        if (c.press < 0.02) {
+          c.mx = m.x
+          c.my = m.y
+        }
+        c.mvx += ((m.x - c.mx) * 90 - c.mvx * 11) * dt
+        c.mvy += ((m.y - c.my) * 90 - c.mvy * 11) * dt
+      }
+      c.mx += c.mvx * dt
+      c.my += c.mvy * dt
+      c.pressV += (((i === hovered ? 1 : 0) - c.press) * 70 - c.pressV * 7) * dt
+      c.press += c.pressV * dt
       const u = c.uniforms
       u.uCenter.value.set(c.x, 0)
-      u.uScale.value = 1 + c.hover * 0.06
-      u.uHover.value = c.hover
+      u.uTime.value = t
+      u.uPress.value = c.press
+      u.uMouse.value.set(c.mx, c.my)
       u.uVel.value = s.vel
       u.uAlpha.value = c.alpha
       u.uDim.value = this.dim.v
       c.mesh.visible = c.alpha > 0.001 && this.isVisible(c)
       // draw nearer cards last so the overlapping hover state sorts correctly
-      c.mesh.renderOrder = Math.round(-Math.abs(c.x)) + (i === hovered ? 10000 : 0)
+      c.mesh.renderOrder = Math.round(-Math.abs(c.x))
     })
 
     this.updateRing(dt, t)
