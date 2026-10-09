@@ -186,14 +186,14 @@ export const floorFragment = /* glsl */ `
   }
 `
 
-// Profile view: a gravity-well lens over the rendered strip.
-// Inside uHorizon the screen is black. Outside it each pixel looks back
-// towards the centre by an amount that decays exponentially with distance:
-//   b(r) = r - (uHorizon + uReach) * exp(-(r - uHorizon) / uFall)
-// At the disc edge that lands just past the centre on the far side, so
-// everything hidden behind the disc is squeezed into a bright ring and wrapped
-// round the circumference; further out the pull fades smoothly, dragging card
-// edges and the floor grid in towards the ring before letting go.
+// Profile view: a swirling, mirror-squeezed rim over the rendered strip.
+// Inside uHorizon the screen is black — what passes behind the disc is
+// swallowed. The rim [uHorizon, uHorizon + uBand] reflects a much wider
+// annulus of the surrounding space, folded and squeezed into it: its inner
+// edge looks out to radius uHorizon + uReach, its outer edge exactly at
+// itself, so cards entering it become thin streaks and the rim joins the
+// untouched picture with a crisp edge. Everything near the disc is also
+// wound one way round it by uSwirl, fading over uFall.
 export const lensVertex = /* glsl */ `
   varying vec2 vUv;
   void main() {
@@ -207,33 +207,41 @@ export const lensFragment = /* glsl */ `
   uniform vec2 uRes;      // css px
   uniform vec2 uCenter;   // css px, y up
   uniform float uHorizon; // black disc radius, px
-  uniform float uReach;   // how far past the centre the disc edge looks, px
-  uniform float uFall;    // falloff length of the pull, px
-  uniform float uBand;    // width of the shaded "tube", px
+  uniform float uBand;    // rim width, px
+  uniform float uReach;   // how far out the rim's inner edge looks, px
+  uniform float uSwirl;   // twist at the disc edge, radians (sign = direction)
+  uniform float uFall;    // fade length of the twist, px
   uniform float uDisp;    // chromatic spread, fraction
 
   varying vec2 vUv;
 
   vec2 bend(vec2 p, float r, float k) {
-    float b = r - (uHorizon + uReach) * exp(-(r - uHorizon) / (uFall * k));
-    return (uCenter + p / max(r, 1e-3) * b) / uRes;
+    float outer = uHorizon + uBand;
+    float t = clamp((r - uHorizon) / max(uBand, 1.0), 0.0, 1.0);
+    // folded squeeze inside the rim; identity outside it
+    float b = r < outer ? mix(uHorizon + uReach * k, outer, pow(t, 0.8)) : r;
+    float a = atan(p.y, p.x) + uSwirl * k * exp(-max(r - uHorizon, 0.0) / max(uFall, 1.0));
+    return (uCenter + vec2(cos(a), sin(a)) * b) / uRes;
   }
 
   void main() {
     vec2 p = vUv * uRes - uCenter;
     float r = length(p);
     vec3 col;
-    if (uFall < 0.5 || r > uHorizon + uFall * 7.0) {
+    if (uBand < 0.5 || r > uHorizon + uFall * 7.0) {
       col = texture2D(tScene, vUv).rgb;
     } else {
       // each channel bends a touch differently: an iridescent fringe
       col.r = texture2D(tScene, bend(p, r, 1.0 + uDisp)).r;
       col.g = texture2D(tScene, bend(p, r, 1.0)).g;
       col.b = texture2D(tScene, bend(p, r, 1.0 - uDisp)).b;
-      // the densest part of the warp reads as a rounded tube
-      float t = clamp((r - uHorizon) / max(uBand, 1.0), 0.0, 1.0);
-      col *= mix(0.6 + 0.4 * sin(t * 3.14159265), 1.0, smoothstep(0.5, 1.0, t));
-      col += vec3(0.18) * exp(-max(r - uHorizon, 0.0) / 3.0);
+      if (r < uHorizon + uBand) {
+        // the rim reads as a polished tube: shaded edges, a soft sheen
+        float t = (r - uHorizon) / max(uBand, 1.0);
+        float tube = sin(t * 3.14159265);
+        col = col * (0.45 + 0.55 * tube) + vec3(0.22) * pow(tube, 8.0);
+        col += vec3(0.25) * exp(-(r - uHorizon) / 2.5);
+      }
       col *= smoothstep(uHorizon, uHorizon + 1.5, r);
     }
     gl_FragColor = vec4(col, 1.0);

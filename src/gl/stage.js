@@ -151,9 +151,10 @@ export class Stage {
       uRes: { value: new THREE.Vector2(1, 1) },
       uCenter: { value: new THREE.Vector2() },
       uHorizon: { value: 0 },
-      uReach: { value: 0 },
-      uFall: { value: 0 },
       uBand: { value: 0 },
+      uReach: { value: 0 },
+      uSwirl: { value: 0 },
+      uFall: { value: 0 },
       uDisp: { value: 0.035 },
     }
     this.lensScene = new THREE.Scene()
@@ -238,9 +239,10 @@ export class Stage {
     this.lensUniforms.uRes.value.set(this.vw, this.vh)
     const m = Math.min(this.vh, this.vw)
     this.lensH = m * 0.37 // black disc the profile text sits in
-    this.lensR = m * 0.04 // disc edge looks this far past the centre
-    this.lensF = m * 0.085 // falloff of the pull around the disc
-    this.lensB = m * 0.09 // shaded tube width
+    this.lensB = m * 0.085 // rim (tube) width
+    this.lensR = m * 0.4 // the rim reflects space out to this far beyond the disc
+    this.lensS = 1.1 // twist at the disc edge, radians (sign = direction)
+    this.lensF = m * 0.09 // fade length of the twist
   }
 
   /* -------------------------------------------------------------- events */
@@ -490,9 +492,10 @@ export class Stage {
     const u = this.lensUniforms
     u.uCenter.value.set(this.vw / 2 + this.mouse.sx * 14, this.vh / 2 - this.mouse.sy * 14)
     u.uHorizon.value = this.lensH * p
-    u.uReach.value = this.lensR * p
-    u.uFall.value = this.lensF * p
     u.uBand.value = this.lensB * p
+    u.uReach.value = this.lensR * p
+    u.uSwirl.value = this.lensS * p
+    u.uFall.value = this.lensF * p
     this.renderer.setRenderTarget(this.rt)
     this.renderer.render(this.scene, this.camera)
     this.renderer.setRenderTarget(null)
