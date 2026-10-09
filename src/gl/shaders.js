@@ -124,7 +124,7 @@ export const cardFragment = /* glsl */ `
     col *= 1.0 - vDent * 0.15;
 
     // light the strip by its depth: crests catch light, troughs fall into shade
-    col *= 1.0 + (vWave > 0.0 ? vWave * 0.12 : vWave * 0.5);
+    col *= 1.0 + (vWave > 0.0 ? vWave * 0.2 : -pow(-vWave, 0.8) * 0.82);
 
     // arrow button
     vec2 q = ((vUv - 0.5) * uSize - uPillC) / uPillR;
