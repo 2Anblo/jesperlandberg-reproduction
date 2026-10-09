@@ -23,6 +23,7 @@ export const cardVertex = /* glsl */ `
   varying vec2 vUv;
   varying float vShade;
   varying float vDent;
+  varying float vWave; // -1 trough .. 1 crest
 
   // Static wave fixed to the screen: biggest at the crest, flat on the right.
   float strip(float x) {
@@ -47,13 +48,15 @@ export const cardVertex = /* glsl */ `
     vDent = f;
 
     vec2 p = uCenter + local;
+    float wave = strip(p.x);
+    vWave = wave / max(uStripAmp, 1.0);
     float a = p.x / uRadius;
     float k = 1.0 + min(abs(uVel), 1.5) * 0.5;
     vec3 w;
     w.x = sin(a) * uRadius;
     w.y = p.y;
     w.z = (1.0 - cos(a)) * uRadius * k
-        + strip(p.x)
+        + wave
         + sin(uv.x * 3.14159265) * abs(uVel) * uWave
         - f * uDentDepth;
     gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);
@@ -78,6 +81,7 @@ export const cardFragment = /* glsl */ `
   varying vec2 vUv;
   varying float vShade;
   varying float vDent;
+  varying float vWave; // -1 trough .. 1 crest
 
   // anti-aliased capsule stroke from a to b, half-width w (button units)
   float stroke(vec2 p, vec2 a, vec2 b, float w, float aa) {
@@ -118,6 +122,9 @@ export const cardFragment = /* glsl */ `
     col *= 1.0 - clamp(-vShade, 0.0, 1.0) * 0.8;    // crease shadow
     col += clamp(vShade, 0.0, 1.0) * 0.45;           // rim highlight
     col *= 1.0 - vDent * 0.15;
+
+    // light the strip by its depth: crests catch light, troughs fall into shade
+    col *= 1.0 + (vWave > 0.0 ? vWave * 0.12 : vWave * 0.5);
 
     // arrow button
     vec2 q = ((vUv - 0.5) * uSize - uPillC) / uPillR;
