@@ -57,9 +57,10 @@ export class Stage {
         uRadius: { value: 1000 },
         uVel: { value: 0 },
         uWave: { value: 0 },
-        uTime: { value: 0 },
         uStripAmp: { value: 0 },
         uStripFreq: { value: 0.003 },
+        uStripX: { value: 0 },
+        uStripW: { value: 1 },
         uMouse: { value: new THREE.Vector2() },
         uPress: { value: 0 },
         uDentR: { value: 120 },
@@ -209,7 +210,9 @@ export class Stage {
       c.uniforms.uRadius.value = this.radius
       c.uniforms.uWave.value = cardH * 0.35
       c.uniforms.uStripAmp.value = cardH * 0.45
-      c.uniforms.uStripFreq.value = (Math.PI * 2) / (this.vw * 1.15)
+      c.uniforms.uStripFreq.value = (Math.PI * 2) / (this.vw * 0.7)
+      c.uniforms.uStripX.value = -this.vw * 0.25
+      c.uniforms.uStripW.value = this.vw * 0.32
       c.uniforms.uDentR.value = cardH * 0.3
       c.uniforms.uDentDepth.value = cardH * 1.1
       c.uniforms.uCorner.value = mobile ? 12 : 18
@@ -289,12 +292,13 @@ export class Stage {
     }
   }
 
-  // film-strip ripple in depth (mirrors strip() in the vertex shader)
+  // static film-strip wave in depth (mirrors strip() in the vertex shader)
   strip(x) {
     const amp = this.cardH * 0.45
-    const k = (Math.PI * 2) / (this.vw * 1.15)
-    const t = this.time || 0
-    return amp * (Math.sin(x * k + t * 0.35) * 0.7 + Math.sin(x * k * 2.3 - t * 0.22 + 1.7) * 0.3)
+    const k = (Math.PI * 2) / (this.vw * 0.7)
+    const x0 = -this.vw * 0.25
+    const e = (x - x0) / (this.vw * 0.32)
+    return amp * Math.exp(-e * e) * Math.cos((x - x0) * k)
   }
 
   // Inverse of bend() for one card: closest card-local point under the cursor.
@@ -380,10 +384,7 @@ export class Stage {
   update() {
     const dt = Math.min(this.clock.getDelta(), 0.05)
     const t = this.clock.elapsedTime
-    this.time = t
     const s = this.scroll
-    // gentle idle drift so the strip never fully rests
-    if (this.scrollable && !this.pointer.down) s.target += dt * 14
 
     if (!s.locked) s.current = damp(s.current, s.target, 5, dt)
     const delta = s.current - s.prev
@@ -427,7 +428,6 @@ export class Stage {
       c.press += c.pressV * dt
       const u = c.uniforms
       u.uCenter.value.set(c.x, 0)
-      u.uTime.value = t
       u.uPress.value = c.press
       u.uMouse.value.set(c.mx, c.my)
       u.uVel.value = s.vel

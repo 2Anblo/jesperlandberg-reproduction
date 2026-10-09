@@ -9,9 +9,10 @@ export const cardVertex = /* glsl */ `
   uniform float uRadius;
   uniform float uVel;
   uniform float uWave;
-  uniform float uTime;
   uniform float uStripAmp;
   uniform float uStripFreq;
+  uniform float uStripX;    // screen-space x of the wave crest
+  uniform float uStripW;    // width of the wave envelope
 
   // liquid press
   uniform vec2 uMouse;     // cursor in card-local px (origin = card centre)
@@ -23,8 +24,10 @@ export const cardVertex = /* glsl */ `
   varying float vShade;
   varying float vDent;
 
-  float strip(float x, float t) {
-    return uStripAmp * (sin(x * uStripFreq + t * 0.35) * 0.7 + sin(x * uStripFreq * 2.3 - t * 0.22 + 1.7) * 0.3);
+  // Static wave fixed to the screen: biggest at the crest, flat on the right.
+  float strip(float x) {
+    float e = (x - uStripX) / uStripW;
+    return uStripAmp * exp(-e * e) * cos((x - uStripX) * uStripFreq);
   }
 
   void main() {
@@ -35,7 +38,9 @@ export const cardVertex = /* glsl */ `
     vec2 toM = local - uMouse;
     float s2 = uDentR * uDentR;
     float f = exp(-dot(toM, toM) / s2) * uPress;
-    local -= toM * f * 0.28;
+    // fade the dent out towards the card border so edges and corners stay put
+    vec2 edge = uSize * 0.5 - abs(local);
+    f *= smoothstep(0.0, uDentR * 0.9, min(edge.x, edge.y));
     // slope of the dent, lit from the top-left, gives the crease its shading
     vec2 grad = -2.0 * toM / s2 * f;
     vShade = dot(grad, normalize(vec2(-1.0, 1.0))) * uDentR * 0.5;
@@ -48,7 +53,7 @@ export const cardVertex = /* glsl */ `
     w.x = sin(a) * uRadius;
     w.y = p.y;
     w.z = (1.0 - cos(a)) * uRadius * k
-        + strip(p.x, uTime)
+        + strip(p.x)
         + sin(uv.x * 3.14159265) * abs(uVel) * uWave
         - f * uDentDepth;
     gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);
