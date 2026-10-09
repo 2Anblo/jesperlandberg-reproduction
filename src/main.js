@@ -242,28 +242,23 @@ async function closeProject() {
   projectEl.classList.remove('is-content')
   state.project = null
   const to = panelEl.getBoundingClientRect()
-  if (!fly) cover.style.opacity = 1
-  // let the content drop away, then cut from the white panel to the card
-  await wait(fly ? 220 : 300)
-
   if (fly) {
-    // white panel shrinks back to the card's flat rect, cuts to the GL card,
-    // which then bends back onto the strip
-    const flat = flatRect(idx)
-    const base = { x: to.x, y: to.y, width: to.width, height: to.height }
-    await tween(550, ease.inOutCubic, (t) => setPanel(flat, base, 1 - t))
-    stage.flight = { i: idx, p: 1, to: stage.planeRect(flat) }
+    // no white panel on the way out: cut straight to the GL card filling the
+    // panel's rect, which shrinks and bends back onto the strip
+    stage.flight = { i: idx, p: 1, to: stage.planeRect(to) }
     stage.hiddenCard = -1
     stage.cards[idx].alpha = 1
     // draw the GL card now, before the panel goes, so no frame shows neither
     stage.update()
     projectEl.classList.remove('is-open')
-    panelEl.style.transform = 'none'
     syncStage()
-    await tween(500, ease.inOutCubic, (t) => (stage.flight.p = 1 - t))
+    await tween(900, ease.inOutCubic, (t) => (stage.flight.p = 1 - t))
     stage.flight = null
     return
   }
+
+  cover.style.opacity = 1
+  await wait(300)
 
   const end = fallbackRect(to)
   const base = { x: to.x, y: to.y, width: to.width, height: to.height }
