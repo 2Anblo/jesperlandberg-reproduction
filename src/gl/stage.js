@@ -151,8 +151,10 @@ export class Stage {
       uRes: { value: new THREE.Vector2(1, 1) },
       uCenter: { value: new THREE.Vector2() },
       uHorizon: { value: 0 },
+      uReach: { value: 0 },
+      uFall: { value: 0 },
       uBand: { value: 0 },
-      uDisp: { value: 0.06 },
+      uDisp: { value: 0.035 },
     }
     this.lensScene = new THREE.Scene()
     this.lensCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
@@ -236,7 +238,9 @@ export class Stage {
     this.lensUniforms.uRes.value.set(this.vw, this.vh)
     const m = Math.min(this.vh, this.vw)
     this.lensH = m * 0.37 // black disc the profile text sits in
-    this.lensB = m * 0.08 // ring the strip wraps around
+    this.lensR = m * 0.04 // disc edge looks this far past the centre
+    this.lensF = m * 0.085 // falloff of the pull around the disc
+    this.lensB = m * 0.09 // shaded tube width
   }
 
   /* -------------------------------------------------------------- events */
@@ -486,6 +490,8 @@ export class Stage {
     const u = this.lensUniforms
     u.uCenter.value.set(this.vw / 2 + this.mouse.sx * 14, this.vh / 2 - this.mouse.sy * 14)
     u.uHorizon.value = this.lensH * p
+    u.uReach.value = this.lensR * p
+    u.uFall.value = this.lensF * p
     u.uBand.value = this.lensB * p
     this.renderer.setRenderTarget(this.rt)
     this.renderer.render(this.scene, this.camera)

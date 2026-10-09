@@ -186,11 +186,14 @@ export const floorFragment = /* glsl */ `
   }
 `
 
-// Profile view: a lens warp of the rendered strip, confined to a ring.
-// Inside uHorizon the screen is black. In the band [uHorizon, uHorizon+uBand]
-// each pixel looks back towards the centre: everything hidden behind the disc
-// is squeezed into the band and wrapped around the circumference, so cards
-// passing behind it travel round the rim. Outside the band nothing moves.
+// Profile view: a gravity-well lens over the rendered strip.
+// Inside uHorizon the screen is black. Outside it each pixel looks back
+// towards the centre by an amount that decays exponentially with distance:
+//   b(r) = r - (uHorizon + uReach) * exp(-(r - uHorizon) / uFall)
+// At the disc edge that lands just past the centre on the far side, so
+// everything hidden behind the disc is squeezed into a bright ring and wrapped
+// round the circumference; further out the pull fades smoothly, dragging card
+// edges and the floor grid in towards the ring before letting go.
 export const lensVertex = /* glsl */ `
   varying vec2 vUv;
   void main() {
@@ -204,18 +207,15 @@ export const lensFragment = /* glsl */ `
   uniform vec2 uRes;      // css px
   uniform vec2 uCenter;   // css px, y up
   uniform float uHorizon; // black disc radius, px
-  uniform float uBand;    // width of the warped ring, px
+  uniform float uReach;   // how far past the centre the disc edge looks, px
+  uniform float uFall;    // falloff length of the pull, px
+  uniform float uBand;    // width of the shaded "tube", px
   uniform float uDisp;    // chromatic spread, fraction
 
   varying vec2 vUv;
 
-  // band position t (0 at the disc, 1 at the outer edge) → source radius.
-  // Starts just past the centre on the far side, ends exactly at r, so the
-  // ring joins the untouched picture outside it.
   vec2 bend(vec2 p, float r, float k) {
-    float t = clamp((r - uHorizon) / max(uBand, 1.0), 0.0, 1.0);
-    float outer = uHorizon + uBand;
-    float b = r >= outer ? r : outer * (pow(t, 1.8 * k) * 1.1 - 0.1);
+    float b = r - (uHorizon + uReach) * exp(-(r - uHorizon) / (uFall * k));
     return (uCenter + p / max(r, 1e-3) * b) / uRes;
   }
 
@@ -223,16 +223,16 @@ export const lensFragment = /* glsl */ `
     vec2 p = vUv * uRes - uCenter;
     float r = length(p);
     vec3 col;
-    if (uBand < 0.5 || r > uHorizon + uBand + 2.0) {
+    if (uFall < 0.5 || r > uHorizon + uFall * 7.0) {
       col = texture2D(tScene, vUv).rgb;
     } else {
-      // each channel bends a touch differently: an iridescent fringe on the ring
+      // each channel bends a touch differently: an iridescent fringe
       col.r = texture2D(tScene, bend(p, r, 1.0 + uDisp)).r;
       col.g = texture2D(tScene, bend(p, r, 1.0)).g;
       col.b = texture2D(tScene, bend(p, r, 1.0 - uDisp)).b;
+      // the densest part of the warp reads as a rounded tube
       float t = clamp((r - uHorizon) / max(uBand, 1.0), 0.0, 1.0);
-      // read as a rounded tube: soft shade at both edges, a glint near the disc
-      col *= 0.55 + 0.45 * sin(t * 3.14159265);
+      col *= mix(0.6 + 0.4 * sin(t * 3.14159265), 1.0, smoothstep(0.5, 1.0, t));
       col += vec3(0.18) * exp(-max(r - uHorizon, 0.0) / 3.0);
       col *= smoothstep(uHorizon, uHorizon + 1.5, r);
     }
