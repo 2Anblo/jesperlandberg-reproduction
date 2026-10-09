@@ -203,16 +203,23 @@ export class Stage {
     const shift = this.cards[0].w / 2
     this.cards.forEach((c) => (c.base -= shift))
     this.cardH = cardH
+    // static depth wave shared by the shader and strip() below
+    this.wave = {
+      amp: cardH * 0.65,
+      freq: (Math.PI * 2) / (this.vw * 0.7),
+      x: -this.vw * 0.125, // crest position (screen-space px from centre)
+      w: this.vw * 0.32,
+    }
     this.floor.position.set(0, -cardH * 0.5 - this.vh * 0.1, -12000)
     this.floorUniforms.uCell.value = Math.max(90, cardH * 0.28)
     this.cards.forEach((c) => {
       c.uniforms.uSize.value.set(c.w, c.h)
       c.uniforms.uRadius.value = this.radius
       c.uniforms.uWave.value = cardH * 0.35
-      c.uniforms.uStripAmp.value = cardH * 0.45
-      c.uniforms.uStripFreq.value = (Math.PI * 2) / (this.vw * 0.7)
-      c.uniforms.uStripX.value = -this.vw * 0.25
-      c.uniforms.uStripW.value = this.vw * 0.32
+      c.uniforms.uStripAmp.value = this.wave.amp
+      c.uniforms.uStripFreq.value = this.wave.freq
+      c.uniforms.uStripX.value = this.wave.x
+      c.uniforms.uStripW.value = this.wave.w
       c.uniforms.uDentR.value = cardH * 0.3
       c.uniforms.uDentDepth.value = cardH * 1.1
       c.uniforms.uCorner.value = mobile ? 12 : 18
@@ -294,11 +301,9 @@ export class Stage {
 
   // static film-strip wave in depth (mirrors strip() in the vertex shader)
   strip(x) {
-    const amp = this.cardH * 0.45
-    const k = (Math.PI * 2) / (this.vw * 0.7)
-    const x0 = -this.vw * 0.25
-    const e = (x - x0) / (this.vw * 0.32)
-    return amp * Math.exp(-e * e) * Math.cos((x - x0) * k)
+    const { amp, freq, x: x0, w } = this.wave
+    const e = (x - x0) / w
+    return amp * Math.exp(-e * e) * Math.cos((x - x0) * freq)
   }
 
   // Inverse of bend() for one card: closest card-local point under the cursor.
