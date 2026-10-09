@@ -172,23 +172,36 @@ async function openProject(p) {
   })
   $('.project-scroll').scrollTop = 0
 
-  if (idx >= 0 && state.view === 'featured' && !pendingRect) pendingRect = stage.cardRect(idx)
-  const from = pendingRect
+  // Featured cards fly out of the strip in WebGL; anything else (index-only
+  // projects, or a card that is off screen) grows the DOM panel instead.
+  const fly = idx >= 0 && state.view === 'featured' && stage.cardRect(idx)
+  const from = fly ? null : pendingRect
   pendingRect = null
 
   panelEl.style.transform = 'none'
+  panelEl.style.borderRadius = ''
   projectEl.classList.add('is-open')
   const to = panelEl.getBoundingClientRect()
-  const start = from || fallbackRect(to)
-  setPanel(start, to, 0)
-  panelEl.style.opacity = from ? 1 : 0
-  if (idx >= 0) stage.hiddenCard = idx
   syncStage()
 
-  await tween(1000, ease.outExpo, (t) => {
-    setPanel(start, to, t)
-    if (!from) panelEl.style.opacity = Math.min(1, t * 3)
-  })
+  if (fly) {
+    // the GL card is the panel until it lands: flatten + fly, then hand over
+    panelEl.style.opacity = 0
+    stage.flight = { i: idx, p: 0, to: stage.planeRect(to) }
+    await tween(1100, ease.inOutCubic, (t) => (stage.flight.p = t))
+    panelEl.style.opacity = 1
+    stage.hiddenCard = idx
+    stage.cards[idx].alpha = 0
+    stage.flight = null
+  } else {
+    const start = from || fallbackRect(to)
+    setPanel(start, to, 0)
+    panelEl.style.opacity = from ? 1 : 0
+    await tween(1000, ease.outExpo, (t) => {
+      setPanel(start, to, t)
+      if (!from) panelEl.style.opacity = Math.min(1, t * 3)
+    })
+  }
   projectEl.classList.add('is-content')
   cover.style.opacity = 0
   $('.project-close').focus({ preventScroll: true })
@@ -200,16 +213,27 @@ async function closeProject() {
   projectEl.classList.remove('is-content')
   $('.project-cover').style.opacity = 1
   state.project = null
-  // the view underneath is restored by applyRoute; target the card where it will be
   const to = panelEl.getBoundingClientRect()
-  await wait(250)
-  const target = idx >= 0 && state.view === 'featured' ? stage.cardRect(idx) : null
-  const end = target || fallbackRect(to)
+  await wait(300)
+
+  const fly = idx >= 0 && state.view === 'featured' && stage.cardRect(idx)
+  if (fly) {
+    // swap the DOM panel back for the GL card and fly it home onto the strip
+    stage.flight = { i: idx, p: 1, to: stage.planeRect(to) }
+    stage.hiddenCard = -1
+    stage.cards[idx].alpha = 1
+    projectEl.classList.remove('is-open')
+    syncStage()
+    await tween(1000, ease.inOutCubic, (t) => (stage.flight.p = 1 - t))
+    stage.flight = null
+    return
+  }
+
+  const end = fallbackRect(to)
   const base = { x: to.x, y: to.y, width: to.width, height: to.height }
   await tween(800, ease.inOutExpo, (t) => {
     setPanel(end, base, 1 - t)
-    if (!target) panelEl.style.opacity = 1 - t
-    if (t > 0.85) stage.hiddenCard = -1
+    panelEl.style.opacity = 1 - t
   })
   stage.hiddenCard = -1
   projectEl.classList.remove('is-open')

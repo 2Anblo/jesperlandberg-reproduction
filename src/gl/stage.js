@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { cardVertex, cardFragment, floorVertex, floorFragment } from './shaders.js'
-import { clamp, damp, ease } from '../utils.js'
+import { clamp, damp, ease, lerp } from '../utils.js'
 
 const GAP = 12
 
@@ -25,6 +25,8 @@ export class Stage {
     this.cardsAlpha = { v: 0, target: 0 }
     this.dim = { v: 0, target: 0 }
     this.hiddenCard = -1
+    // card flying between the strip and the detail panel: { i, p, to }
+    this.flight = null
     this.ring = { v: 0, target: 0 }
     this.mouse = { x: 0, y: 0, sx: 0, sy: 0 }
 
@@ -65,6 +67,8 @@ export class Stage {
         uPress: { value: 0 },
         uDentR: { value: 120 },
         uDentDepth: { value: 120 },
+        uFlat: { value: 0 },
+        uTexAspect: { value: cv.width / cv.height },
         uPillC: { value: new THREE.Vector2() },
         uPillR: { value: 12 },
         uPillHover: { value: 0 },
@@ -228,10 +232,7 @@ export class Stage {
       c.uniforms.uStripW.value = this.wave.w
       c.uniforms.uDentR.value = cardH * 0.3
       c.uniforms.uDentDepth.value = cardH * 1.1
-      const pr = Math.max(10, cardH * 0.04)
-      const pad = cardH * 0.045
-      c.uniforms.uPillR.value = pr
-      c.uniforms.uPillC.value.set(c.w / 2 - pad - pr, -c.h / 2 + pad + pr)
+      c.uniforms.uPillR.value = Math.max(10, cardH * 0.04)
       c.uniforms.uCorner.value = mobile ? 12 : 18
     })
   }
@@ -387,6 +388,11 @@ export class Stage {
     return { x: r.left, y: r.top, width: r.right - r.left, height: r.bottom - r.top }
   }
 
+  // Screen rect (CSS px) → centre/size on the z=0 plane, where 1 unit == 1px.
+  planeRect(r) {
+    return { x: r.x + r.width / 2 - this.vw / 2, y: this.vh / 2 - (r.y + r.height / 2), w: r.width, h: r.height }
+  }
+
   // Scroll so card `i` sits in the middle of the screen.
   focus(i) {
     const c = this.cards[i]
@@ -445,18 +451,32 @@ export class Stage {
       const dir = i === hovered ? 1 : -1
       c.pill = clamp(c.pill + (dir * dt) / 0.75, 0, 1)
       const u = c.uniforms
+      const fl = this.flight && this.flight.i === i ? this.flight : null
+      const p = fl ? fl.p : 0
+      const cx = fl ? lerp(c.x, fl.to.x, p) : c.x
+      const cy = fl ? lerp(0, fl.to.y, p) : 0
+      const cw = fl ? lerp(c.w, fl.to.w, p) : c.w
+      const ch = fl ? lerp(c.h, fl.to.h, p) : c.h
+      u.uSize.value.set(cw, ch)
+      u.uFlat.value = p
+      u.uCorner.value = lerp(this.vw < 700 ? 12 : 18, this.vw < 700 ? 15 : 20, p)
+      const pr = u.uPillR.value
+      const pad = this.cardH * 0.045
+      u.uPillC.value.set(cw / 2 - pad - pr, -ch / 2 + pad + pr)
       u.uPillHover.value = ease.outCubic(clamp(c.pill / 0.5, 0, 1))
       u.uMarkOut.value = ease.inOutCubic(clamp(c.pill / 0.4, 0, 1))
       u.uMarkIn.value = ease.outCubic(clamp((c.pill - 0.3) / 0.7, 0, 1))
-      u.uCenter.value.set(c.x, 0)
+      u.uCenter.value.set(cx, cy)
       u.uPress.value = c.press
       u.uMouse.value.set(c.mx, c.my)
       u.uVel.value = s.vel
       u.uAlpha.value = c.alpha
-      u.uDim.value = this.dim.v
-      c.mesh.visible = c.alpha > 0.001 && this.isVisible(c)
-      // draw nearer cards last so the overlapping hover state sorts correctly
-      c.mesh.renderOrder = Math.round(-Math.abs(c.x))
+      u.uDim.value = fl ? 0 : this.dim.v
+      if (fl) u.uAlpha.value = 1
+      c.mesh.visible = fl ? true : c.alpha > 0.001 && this.isVisible(c)
+      // the flying card draws over everything; otherwise nearer cards last
+      c.mesh.renderOrder = fl ? 1e6 : Math.round(-Math.abs(c.x))
+      c.mesh.material.depthTest = !fl
     })
 
     this.updateRing(dt, t)

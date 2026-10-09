@@ -19,6 +19,7 @@ export const cardVertex = /* glsl */ `
   uniform float uPress;    // spring-driven 0..1 (may overshoot)
   uniform float uDentR;    // dent radius in px
   uniform float uDentDepth;
+  uniform float uFlat;      // 0 on the strip .. 1 flat (flying to the detail panel)
 
   varying vec2 vUv;
   varying float vShade;
@@ -38,7 +39,7 @@ export const cardVertex = /* glsl */ `
     // gaussian dent around the cursor; pull the surface inwards towards it
     vec2 toM = local - uMouse;
     float s2 = uDentR * uDentR;
-    float f = exp(-dot(toM, toM) / s2) * uPress;
+    float f = exp(-dot(toM, toM) / s2) * uPress * (1.0 - uFlat);
     // fade the dent out towards the card border so edges and corners stay put
     vec2 edge = uSize * 0.5 - abs(local);
     f *= smoothstep(0.0, uDentR * 0.9, min(edge.x, edge.y));
@@ -59,6 +60,9 @@ export const cardVertex = /* glsl */ `
         + wave
         + sin(uv.x * 3.14159265) * abs(uVel) * uWave
         - f * uDentDepth;
+    // every strip term eases off together as the card flies out flat
+    w = mix(w, vec3(p, 0.0), uFlat);
+    vWave *= 1.0 - uFlat;
     gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);
   }
 `
@@ -70,6 +74,8 @@ export const cardFragment = /* glsl */ `
   uniform float uAlpha;
   uniform float uDim;
   uniform vec2 uMouse;
+  uniform float uTexAspect; // artwork width / height
+  uniform float uFlat;
 
   // round arrow button, bottom-right
   uniform vec2 uPillC;      // centre, card-local px
@@ -117,6 +123,9 @@ export const cardFragment = /* glsl */ `
     // lens-like refraction: the dent magnifies what is under the cursor
     vec2 mUv = uMouse / uSize + 0.5;
     vec2 uv = vUv + (mUv - vUv) * vDent * 0.25;
+    // cover-fit the artwork when the plane's aspect differs (in flight)
+    float ratio = (uSize.x / uSize.y) / uTexAspect;
+    uv = ratio > 1.0 ? vec2(uv.x, (uv.y - 0.5) / ratio + 0.5) : vec2((uv.x - 0.5) * ratio + 0.5, uv.y);
     vec3 col = texture2D(uMap, uv).rgb;
 
     col *= 1.0 - clamp(-vShade, 0.0, 1.0) * 0.8;    // crease shadow
@@ -130,7 +139,7 @@ export const cardFragment = /* glsl */ `
     vec2 q = ((vUv - 0.5) * uSize - uPillC) / uPillR;
     float aa = 1.2 / uPillR;
     float scale = 1.0 + uPillHover * 0.18;
-    float disc = 1.0 - smoothstep(scale - aa, scale + aa, length(q));
+    float disc = (1.0 - smoothstep(scale - aa, scale + aa, length(q))) * (1.0 - uFlat);
     q /= scale;
     float w = 0.075;
     // leaving copy slides out along +x and is clipped by the disc
