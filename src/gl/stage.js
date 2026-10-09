@@ -14,6 +14,8 @@ export class Stage {
     container.appendChild(this.renderer.domElement)
 
     this.scene = new THREE.Scene()
+    // the profile ring gets its own pass so the strip can never cut through it
+    this.ringScene = new THREE.Scene()
     this.camera = new THREE.PerspectiveCamera(40, 1, 1, 30000)
 
     this.cards = []
@@ -173,7 +175,7 @@ export class Stage {
     )
     this.ringGroup.add(this.ringDisk, this.ringMesh)
     this.ringGroup.visible = false
-    this.scene.add(this.ringGroup)
+    this.ringScene.add(this.ringGroup)
     this.layoutRing()
   }
 
@@ -481,6 +483,13 @@ export class Stage {
 
     this.updateRing(dt, t)
     this.renderer.render(this.scene, this.camera)
+    if (this.ringGroup && this.ringGroup.visible) {
+      // draw the ring over the strip: keep the colour, drop the strip's depth
+      this.renderer.autoClear = false
+      this.renderer.clearDepth()
+      this.renderer.render(this.ringScene, this.camera)
+      this.renderer.autoClear = true
+    }
   }
 
   updateRing(dt, t) {
