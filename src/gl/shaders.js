@@ -210,6 +210,7 @@ export const lensFragment = /* glsl */ `
   uniform float uHorizon; // black disc radius, px
   uniform float uBand;    // rim width, px
   uniform float uStripH;  // card height on screen, px
+  uniform float uRepeat;  // passes along the strip per quarter turn (odd = seamless)
   uniform float uSwirl;   // twist at the disc edge, radians (sign = direction)
   uniform float uFall;    // fade length of the twist, px
   uniform float uDisp;    // chromatic spread, fraction
@@ -227,7 +228,10 @@ export const lensFragment = /* glsl */ `
     float t = clamp((r - uHorizon) / max(uBand, 1.0), 0.0, 1.0);
     float side = cos(a) >= 0.0 ? 1.0 : -1.0;               // entered from right / left
     float phi = side > 0.0 ? a : (a > 0.0 ? 3.14159265 - a : -3.14159265 - a);
-    float d = min(abs(phi) / HALF_PI, 1.0) * outer;        // quarter turn = entry → centre
+    // ping-pong entry → centre → entry … uRepeat times per quarter turn, so the
+    // cards are thinned along the rim; odd counts meet seamlessly top/bottom
+    float q = min(abs(phi) / HALF_PI, 1.0) * uRepeat;
+    float d = abs(mod(q + 1.0, 2.0) - 1.0) * outer;
     vec2 src = uCenter + vec2(side * (outer - d), (t - 0.5) * uStripH * 0.95 * k);
     return src / uRes;
   }

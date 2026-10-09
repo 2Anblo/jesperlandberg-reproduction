@@ -153,6 +153,7 @@ export class Stage {
       uHorizon: { value: 0 },
       uBand: { value: 0 },
       uStripH: { value: 300 },
+      uRepeat: { value: 3 },
       uSwirl: { value: 0 },
       uFall: { value: 0 },
       uDisp: { value: 0.035 },
@@ -240,8 +241,8 @@ export class Stage {
     const m = Math.min(this.vh, this.vw)
     this.lensH = m * 0.37 // black disc the profile text sits in
     this.lensB = m * 0.085 // rim (tube) width
-    this.lensS = 1.1 // twist at the disc edge, radians (sign = direction)
-    this.lensF = m * 0.09 // fade length of the twist
+    this.lensS = 2.1 // twist at the disc edge, radians (sign = direction)
+    this.lensF = m * 0.13 // fade length of the twist
   }
 
   /* -------------------------------------------------------------- events */
