@@ -231,7 +231,7 @@ body.is-full .full-item {
   pointer-events: none;
 }
 .profile-inner {
-  width: min(440px, 56vh, 60vw);
+  width: min(520px, 66vh, 70vw);
   text-align: center;
   opacity: 0;
   transform: translateY(10px);

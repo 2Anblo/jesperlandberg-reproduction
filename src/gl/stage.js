@@ -156,7 +156,9 @@ export class Stage {
       uRepeat: { value: 3 },
       uSwirl: { value: 0 },
       uFall: { value: 0 },
-      uDisp: { value: 0.035 },
+      uDisp: { value: 0.012 },
+      uPull: { value: 0 },
+      uPullL: { value: 0 },
     }
     this.lensScene = new THREE.Scene()
     this.lensCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
@@ -239,10 +241,12 @@ export class Stage {
     this.rt.setSize(Math.round(this.vw * dpr), Math.round(this.vh * dpr))
     this.lensUniforms.uRes.value.set(this.vw, this.vh)
     const m = Math.min(this.vh, this.vw)
-    this.lensH = m * 0.37 // black disc the profile text sits in
-    this.lensB = m * 0.085 // rim (tube) width
-    this.lensS = 2.1 // twist at the disc edge, radians (sign = direction)
-    this.lensF = m * 0.13 // fade length of the twist
+    this.lensH = m * 0.45 // black disc the profile text sits in
+    this.lensB = m * 0.07 // rim (tube) width
+    this.lensS = 0.45 // twist at the disc edge, radians (sign = direction)
+    this.lensF = m * 0.07 // fade length of the twist
+    this.lensP = m * 0.075 // just outside the rim, look this far inward
+    this.lensPL = m * 0.09 // fade length of that pull
   }
 
   /* -------------------------------------------------------------- events */
@@ -496,6 +500,8 @@ export class Stage {
     u.uStripH.value = this.cardH || 300
     u.uSwirl.value = this.lensS * p
     u.uFall.value = this.lensF * p
+    u.uPull.value = this.lensP * p
+    u.uPullL.value = this.lensPL * p
     this.renderer.setRenderTarget(this.rt)
     this.renderer.render(this.scene, this.camera)
     this.renderer.setRenderTarget(null)

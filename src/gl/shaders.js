@@ -213,7 +213,9 @@ export const lensFragment = /* glsl */ `
   uniform float uRepeat;  // passes along the strip per quarter turn (odd = seamless)
   uniform float uSwirl;   // twist at the disc edge, radians (sign = direction)
   uniform float uFall;    // fade length of the twist, px
-  uniform float uDisp;    // chromatic spread, fraction
+  uniform float uDisp;    // chromatic spread, fraction (rim only)
+  uniform float uPull;    // how far just-outside pixels look in towards the rim, px
+  uniform float uPullL;   // fade length of that pull, px
 
   varying vec2 vUv;
 
@@ -222,7 +224,11 @@ export const lensFragment = /* glsl */ `
   vec2 bend(vec2 p, float r, float k) {
     float outer = uHorizon + uBand;
     float a = atan(p.y, p.x) + uSwirl * k * exp(-max(r - uHorizon, 0.0) / max(uFall, 1.0));
-    if (r >= outer) return (uCenter + vec2(cos(a), sin(a)) * r) / uRes;
+    if (r >= outer) {
+      // just outside, look a little inward: card edges stretch and flow into the rim
+      float b = r - uPull * exp(-(r - outer) / max(uPullL, 1.0));
+      return (uCenter + vec2(cos(a), sin(a)) * b) / uRes;
+    }
 
     // inside the rim: wrap the strip round the circumference
     float t = clamp((r - uHorizon) / max(uBand, 1.0), 0.0, 1.0);
@@ -240,20 +246,23 @@ export const lensFragment = /* glsl */ `
     vec2 p = vUv * uRes - uCenter;
     float r = length(p);
     vec3 col;
-    if (uBand < 0.5 || r > uHorizon + uFall * 7.0) {
+    float outer = uHorizon + uBand;
+    if (uBand < 0.5 || r > outer + max(uFall, uPullL) * 7.0) {
       col = texture2D(tScene, vUv).rgb;
+    } else if (r >= outer) {
+      col = texture2D(tScene, bend(p, r, 1.0)).rgb;
     } else {
-      // each channel bends a touch differently: an iridescent fringe
+      // inside the rim each channel bends a touch differently: a thin fringe
       col.r = texture2D(tScene, bend(p, r, 1.0 + uDisp)).r;
       col.g = texture2D(tScene, bend(p, r, 1.0)).g;
       col.b = texture2D(tScene, bend(p, r, 1.0 - uDisp)).b;
-      if (r < uHorizon + uBand) {
-        // the rim reads as a polished tube: shaded edges, a soft sheen
-        float t = (r - uHorizon) / max(uBand, 1.0);
-        float tube = sin(t * 3.14159265);
-        col = col * (0.45 + 0.55 * tube) + vec3(0.22) * pow(tube, 8.0);
-        col += vec3(0.25) * exp(-(r - uHorizon) / 2.5);
-      }
+      // dark polished metal: shadowed inner edge, two crisp highlights
+      float t = (r - uHorizon) / max(uBand, 1.0);
+      float tube = sin(t * 3.14159265);
+      col *= 0.2 + 0.7 * pow(tube, 1.4);
+      col += vec3(0.55) * exp(-pow((t - 0.3) / 0.07, 2.0));
+      col += vec3(0.3) * exp(-pow((t - 0.8) / 0.05, 2.0));
+      col += vec3(0.12) * exp(-(r - uHorizon) / 2.0);
       col *= smoothstep(uHorizon, uHorizon + 1.5, r);
     }
     gl_FragColor = vec4(col, 1.0);
