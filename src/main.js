@@ -7,6 +7,15 @@ import { tween, ease, wait, lerp } from './utils.js'
 const $ = (s, el = document) => el.querySelector(s)
 const body = document.body
 
+// The site may be served from a sub-path (e.g. a GitHub Pages project site).
+// Inside the app routes are always '/', '/full', '/projects/:slug' …;
+// these helpers add/strip the deploy base at the edges.
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, '')
+const url = (path) => BASE + path
+const toRoute = (pathname) =>
+  (BASE && pathname.startsWith(BASE) ? pathname.slice(BASE.length) : pathname) || '/'
+const route = () => toRoute(location.pathname)
+
 /* ---------------------------------------------------------------- content */
 
 const slugify = (s) => s.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
@@ -47,6 +56,7 @@ function imageURL(p, opts = {}, key = 'card') {
 function fillStatic() {
   document.title = site.title
   document.querySelectorAll('[data-site-name]').forEach((el) => (el.textContent = site.name))
+  document.querySelectorAll('a[data-link]').forEach((a) => (a.href = url(a.getAttribute('href'))))
   $('.profile-bio').textContent = site.bio
   $('.profile-stats').textContent = site.stats
   $('.profile-links').innerHTML = site.links
@@ -57,7 +67,7 @@ function fillStatic() {
   $('.full-list').innerHTML = ordered
     .map(
       (p, i) =>
-        `<a class="full-item" href="/projects/${p.slug}" data-slug="${p.slug}" style="--i:${i}">${p.title}</a>` +
+        `<a class="full-item" href="${url(`/projects/${p.slug}`)}" data-slug="${p.slug}" style="--i:${i}">${p.title}</a>` +
         (i < ordered.length - 1 ? '<span class="full-dot">·</span>' : '')
     )
     .join('')
@@ -66,8 +76,8 @@ function fillStatic() {
   $('#sr').innerHTML = `
     <h1>${site.title}</h1><p>${site.bio}</p>
     <h2>Featured work</h2>
-    <ul>${projects.map((p) => `<li><a href="/projects/${p.slug}">${p.title}</a> — ${p.description}</li>`).join('')}</ul>
-    <ul><li><a href="/full">Full index</a></li><li><a href="/newsletter">Newsletter</a></li></ul>`
+    <ul>${projects.map((p) => `<li><a href="${url(`/projects/${p.slug}`)}">${p.title}</a> — ${p.description}</li>`).join('')}</ul>
+    <ul><li><a href="${url('/full')}">Full index</a></li><li><a href="${url('/newsletter')}">Newsletter</a></li></ul>`
 }
 
 /* ------------------------------------------------------------------ state */
@@ -100,8 +110,8 @@ function syncStage() {
 /* ---------------------------------------------------------------- routing */
 
 function navigate(path) {
-  if (path === location.pathname) return
-  history.pushState(null, '', path)
+  if (path === route()) return
+  history.pushState(null, '', url(path))
   queueRoute()
 }
 
@@ -111,7 +121,7 @@ function queueRoute() {
 }
 
 async function applyRoute() {
-  const path = location.pathname.replace(/\/$/, '') || '/'
+  const path = route().replace(/\/$/, '') || '/'
   const m = path.match(/^\/projects\/([\w-]+)$/)
   const next = m ? bySlug[m[1]] || null : null
 
@@ -286,11 +296,11 @@ function bindUI() {
       }
       pv.classList.remove('on')
     }
-    navigate(new URL(a.href).pathname)
+    navigate(toRoute(new URL(a.href).pathname))
   })
 
   $('#profileBtn').addEventListener('click', () => {
-    if (location.pathname !== '/') {
+    if (route() !== '/') {
       state.profile = true
       navigate('/')
       return
@@ -375,7 +385,7 @@ async function boot() {
   body.classList.add('is-ready')
 
   // intro: spin the carousel in from the right
-  const m = location.pathname.match(/^\/projects\/([\w-]+)/)
+  const m = route().match(/^\/projects\/([\w-]+)/)
   const startOn = m && bySlug[m[1]] ? featuredIndex(bySlug[m[1]]) : -1
   if (startOn > 0) stage.focus(startOn)
   const s = stage.scroll

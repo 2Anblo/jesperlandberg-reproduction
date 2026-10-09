@@ -35,5 +35,19 @@ npm run dev
 
 ## Deploy
 
-`npm run build` outputs a static site to `dist/`. Routes use the History API, so
-configure your host to serve `index.html` for unknown paths (SPA fallback).
+Pushing to `main` runs `.github/workflows/deploy.yml`, which builds the site
+and publishes it to GitHub Pages at `https://<user>.github.io/<repo>/`.
+
+One-time setup: in the repo go to **Settings → Pages** and set **Source** to
+**GitHub Actions**.
+
+How it handles a project-site sub-path:
+
+- the workflow sets `BASE_PATH=/<repo>/`, which `vite.config.js` uses as `base`;
+  routes and links in `src/main.js` add/strip that prefix automatically
+- Pages has no SPA fallback, so the workflow copies `index.html` to `404.html`
+  and deep links such as `/projects/<slug>` still load the app
+
+For any other static host, `npm run build` outputs to `dist/`; configure the host
+to serve `index.html` for unknown paths. Set `BASE_PATH` if it is not served
+from the domain root.
